@@ -11,6 +11,7 @@ import (
 
 	configv1 "github.com/openshift/api/config/v1"
 	configlistersv1 "github.com/openshift/client-go/config/listers/config/v1"
+	"github.com/openshift/library-go/pkg/cloudprovider"
 	"github.com/openshift/library-go/pkg/operator/configobserver"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
@@ -67,14 +68,25 @@ func (c *cloudProviderObserver) ObserveCloudProviderNames(genericListers configo
 		return existingConfig, append(errs, err)
 	}
 
-	_, err = listers.FeatureGateLister().Get("cluster")
+	featureGate, err := listers.FeatureGateLister().Get("cluster")
 	if errors.IsNotFound(err) {
 		recorder.Eventf("ObserveCloudProviderNames", "Optional featuregate.%s/cluster not found", configv1.GroupName)
 	} else if err != nil {
 		return existingConfig, append(errs, err)
 	}
 
+	external, err := cloudprovider.IsCloudProviderExternal(infrastructure.Status.Platform, featureGate)
+	if err != nil {
+		recorder.Eventf("ObserveCloudProviderNames", "Could not determine external cloud provider state: %v", err)
+	} else if external {
+		if err := unstructured.SetNestedStringSlice(observedConfig, []string{"external"}, c.cloudProviderNamePath...); err != nil {
+			errs = append(errs, err)
+		}
+		return observedConfig, errs
+	}
+
 	cloudProvider := getPlatformName(infrastructure.Status.Platform, recorder)
+
 	if len(cloudProvider) > 0 {
 		if err := unstructured.SetNestedStringSlice(observedConfig, []string{cloudProvider}, c.cloudProviderNamePath...); err != nil {
 			errs = append(errs, err)

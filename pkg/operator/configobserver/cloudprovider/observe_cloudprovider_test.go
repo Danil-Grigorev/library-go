@@ -15,6 +15,7 @@ import (
 
 	configv1 "github.com/openshift/api/config/v1"
 	configlistersv1 "github.com/openshift/client-go/config/listers/config/v1"
+	"github.com/openshift/library-go/pkg/cloudprovider"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 )
@@ -74,9 +75,20 @@ func (l FakeInfrastructureLister) FeatureGateLister() configlistersv1.FeatureGat
 func TestObserveCloudProviderNames(t *testing.T) {
 	cases := []struct {
 		platform           configv1.PlatformType
+		fgSelection        configv1.FeatureGateSelection
 		expected           string
 		cloudProviderCount int
 	}{{
+		platform:           configv1.AWSPlatformType,
+		expected:           "external",
+		cloudProviderCount: 1,
+		fgSelection: configv1.FeatureGateSelection{
+			FeatureSet: configv1.CustomNoUpgrade,
+			CustomNoUpgrade: &configv1.CustomFeatureGates{
+				Enabled: []string{cloudprovider.ExternalCloudProviderFeature},
+			},
+		},
+	}, {
 		platform:           configv1.AWSPlatformType,
 		expected:           "aws",
 		cloudProviderCount: 1,
@@ -84,6 +96,16 @@ func TestObserveCloudProviderNames(t *testing.T) {
 		platform:           configv1.AzurePlatformType,
 		expected:           "azure",
 		cloudProviderCount: 1,
+	}, {
+		platform:           configv1.AzurePlatformType,
+		expected:           "azure",
+		cloudProviderCount: 1,
+		fgSelection: configv1.FeatureGateSelection{
+			FeatureSet: configv1.CustomNoUpgrade,
+			CustomNoUpgrade: &configv1.CustomFeatureGates{
+				Enabled: []string{cloudprovider.ExternalCloudProviderFeature},
+			},
+		},
 	}, {
 		platform:           configv1.BareMetalPlatformType,
 		cloudProviderCount: 0,
@@ -95,6 +117,16 @@ func TestObserveCloudProviderNames(t *testing.T) {
 		expected:           "openstack",
 		cloudProviderCount: 1,
 	}, {
+		platform:           configv1.OpenStackPlatformType,
+		expected:           "external",
+		cloudProviderCount: 1,
+		fgSelection: configv1.FeatureGateSelection{
+			FeatureSet: configv1.CustomNoUpgrade,
+			CustomNoUpgrade: &configv1.CustomFeatureGates{
+				Enabled: []string{cloudprovider.ExternalCloudProviderFeature},
+			},
+		},
+	}, {
 		platform:           configv1.GCPPlatformType,
 		expected:           "gce",
 		cloudProviderCount: 1,
@@ -104,6 +136,16 @@ func TestObserveCloudProviderNames(t *testing.T) {
 	}, {
 		platform:           "",
 		cloudProviderCount: 0,
+	}, {
+		platform:           "",
+		expected:           "",
+		cloudProviderCount: 0,
+		fgSelection: configv1.FeatureGateSelection{
+			FeatureSet: configv1.CustomNoUpgrade,
+			CustomNoUpgrade: &configv1.CustomFeatureGates{
+				Enabled: []string{cloudprovider.ExternalCloudProviderFeature},
+			},
+		},
 	}}
 	for _, c := range cases {
 		t.Run(string(c.platform), func(t *testing.T) {
@@ -114,7 +156,9 @@ func TestObserveCloudProviderNames(t *testing.T) {
 			}
 			if err := fgIndexer.Add(&configv1.FeatureGate{
 				ObjectMeta: v1.ObjectMeta{Name: "cluster"},
-				Spec:       configv1.FeatureGateSpec{}}); err != nil {
+				Spec: configv1.FeatureGateSpec{
+					FeatureGateSelection: c.fgSelection,
+				}}); err != nil {
 				t.Fatal(err.Error())
 			}
 			listers := FakeInfrastructureLister{
