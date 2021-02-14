@@ -26,6 +26,7 @@ const (
 // InfrastructureLister lists infrastrucre information and allows resources to be synced
 type InfrastructureLister interface {
 	InfrastructureLister() configlistersv1.InfrastructureLister
+	FeatureGateLister() configlistersv1.FeatureGateLister
 	ResourceSyncer() resourcesynccontroller.ResourceSyncer
 	ConfigMapLister() corelisterv1.ConfigMapLister
 }
@@ -63,6 +64,13 @@ func (c *cloudProviderObserver) ObserveCloudProviderNames(genericListers configo
 		return observedConfig, errs
 	}
 	if err != nil {
+		return existingConfig, append(errs, err)
+	}
+
+	_, err = listers.FeatureGateLister().Get("cluster")
+	if errors.IsNotFound(err) {
+		recorder.Eventf("ObserveCloudProviderNames", "Optional featuregate.%s/cluster not found", configv1.GroupName)
+	} else if err != nil {
 		return existingConfig, append(errs, err)
 	}
 

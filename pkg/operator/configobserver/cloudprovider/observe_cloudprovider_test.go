@@ -48,6 +48,7 @@ type FakeInfrastructureLister struct {
 	ResourceSync          resourcesynccontroller.ResourceSyncer
 	PreRunCachesSynced    []cache.InformerSynced
 	ConfigMapLister_      corelisterv1.ConfigMapLister
+	FeatureGateLister_    configlistersv1.FeatureGateLister
 }
 
 func (l FakeInfrastructureLister) ResourceSyncer() resourcesynccontroller.ResourceSyncer {
@@ -64,6 +65,10 @@ func (l FakeInfrastructureLister) PreRunHasSynced() []cache.InformerSynced {
 
 func (l FakeInfrastructureLister) ConfigMapLister() corelisterv1.ConfigMapLister {
 	return l.ConfigMapLister_
+}
+
+func (l FakeInfrastructureLister) FeatureGateLister() configlistersv1.FeatureGateLister {
+	return l.FeatureGateLister_
 }
 
 func TestObserveCloudProviderNames(t *testing.T) {
@@ -103,13 +108,20 @@ func TestObserveCloudProviderNames(t *testing.T) {
 	for _, c := range cases {
 		t.Run(string(c.platform), func(t *testing.T) {
 			indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+			fgIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 			if err := indexer.Add(&configv1.Infrastructure{ObjectMeta: v1.ObjectMeta{Name: "cluster"}, Status: configv1.InfrastructureStatus{Platform: c.platform}}); err != nil {
+				t.Fatal(err.Error())
+			}
+			if err := fgIndexer.Add(&configv1.FeatureGate{
+				ObjectMeta: v1.ObjectMeta{Name: "cluster"},
+				Spec:       configv1.FeatureGateSpec{}}); err != nil {
 				t.Fatal(err.Error())
 			}
 			listers := FakeInfrastructureLister{
 				InfrastructureLister_: configlistersv1.NewInfrastructureLister(indexer),
 				ResourceSync:          &FakeResourceSyncer{},
 				ConfigMapLister_:      &FakeConfigMapLister{},
+				FeatureGateLister_:    configlistersv1.NewFeatureGateLister(fgIndexer),
 			}
 			cloudProvidersPath := []string{"extendedArguments", "cloud-provider"}
 			cloudProviderConfPath := []string{"extendedArguments", "cloud-config"}
