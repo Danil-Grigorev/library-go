@@ -68,25 +68,17 @@ func (c *cloudProviderObserver) ObserveCloudProviderNames(genericListers configo
 		return existingConfig, append(errs, err)
 	}
 
-	featureGate, err := listers.FeatureGateLister().Get("cluster")
-	if errors.IsNotFound(err) {
-		recorder.Eventf("ObserveCloudProviderNames", "Optional featuregate.%s/cluster not found", configv1.GroupName)
-	} else if err != nil {
-		return existingConfig, append(errs, err)
-	}
-
-	external, err := cloudprovider.IsCloudProviderExternal(infrastructure.Status.Platform, featureGate)
+	external, err := c.isCloudProviderExternal(listers, infrastructure.Status.Platform, recorder)
 	if err != nil {
 		recorder.Eventf("ObserveCloudProviderNames", "Could not determine external cloud provider state: %v", err)
-	} else if external {
-		if err := unstructured.SetNestedStringSlice(observedConfig, []string{"external"}, c.cloudProviderNamePath...); err != nil {
-			errs = append(errs, err)
-		}
-		return observedConfig, errs
+		return existingConfig, append(errs, err)
+	}
+	if external {
+		return c.setCloudProviderExternal(listers, existingConfig, observedConfig, errs)
 	}
 
+	// Still using in-tree cloud provider, fall back to setting provider information based on platform type.
 	cloudProvider := getPlatformName(infrastructure.Status.Platform, recorder)
-
 	if len(cloudProvider) > 0 {
 		if err := unstructured.SetNestedStringSlice(observedConfig, []string{cloudProvider}, c.cloudProviderNamePath...); err != nil {
 			errs = append(errs, err)
@@ -150,6 +142,50 @@ func (c *cloudProviderObserver) ObserveCloudProviderNames(genericListers configo
 
 	if !equality.Semantic.DeepEqual(existingCloudConfig, []string{staticCloudConfFile}) {
 		recorder.Eventf("ObserveCloudProviderNamesChanges", "CloudProvider config file changed to %s", staticCloudConfFile)
+	}
+
+	return observedConfig, errs
+}
+
+// isCloudProviderExternal is used to determine if the cluster should use external cloud providers.
+// Currently, this is opt in via a feature gate. If no feature gate is present, the cluster should remain
+// using the in-tree implementation.
+func (c *cloudProviderObserver) isCloudProviderExternal(listers InfrastructureLister, platform configv1.PlatformType, recorder events.Recorder) (bool, error) {
+	featureGate, err := listers.FeatureGateLister().Get("cluster")
+	if errors.IsNotFound(err) {
+		// No feature gate is set, therefore cannot be external.
+		// This is not an error as the feature gate is an optional resource.
+		recorder.Eventf("ObserveCloudProviderNames", "Optional featuregate.%s/cluster not found", configv1.GroupName)
+		return false, nil
+	} else if err != nil {
+		return false, fmt.Errorf("could not fetch featuregate: %v", err)
+	}
+
+	external, err := cloudprovider.IsCloudProviderExternal(platform, featureGate)
+	if err != nil {
+		return false, fmt.Errorf("could not determine if cloud provider is external from featuregate: %v", err)
+	}
+
+	return external, nil
+}
+
+// setCloudProviderExternal sets the configuration for the cloudProviderNamePath to `external` when external cloud
+// providers are in use. It also clears the cloud-config configmap as this is not used with `external` cloud providers.
+func (c *cloudProviderObserver) setCloudProviderExternal(listers InfrastructureLister, existingConfig, observedConfig map[string]interface{}, errs []error) (map[string]interface{}, []error) {
+	// Set the cloud provider to "external" instead of using the platform name
+	if err := unstructured.SetNestedStringSlice(observedConfig, []string{"external"}, c.cloudProviderNamePath...); err != nil {
+		errs = append(errs, err)
+	}
+
+	// Empty the cloud-config configmap as it is no longer needed when using external cloud providers
+	if err := listers.ResourceSyncer().SyncConfigMap(
+		resourcesynccontroller.ResourceLocation{
+			Namespace: c.targetNamespaceName,
+			Name:      "cloud-config",
+		},
+		resourcesynccontroller.ResourceLocation{},
+	); err != nil {
+		return existingConfig, append(errs, err)
 	}
 
 	return observedConfig, errs
