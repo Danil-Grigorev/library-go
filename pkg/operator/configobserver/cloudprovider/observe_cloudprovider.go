@@ -177,16 +177,17 @@ func (c *cloudProviderObserver) setCloudProviderExternal(listers InfrastructureL
 		errs = append(errs, err)
 	}
 
+	// TODO: Once in tree volume plugins are no longer required, we can remove the cloud-config configmap.
 	// Empty the cloud-config configmap as it is no longer needed when using external cloud providers
-	if err := listers.ResourceSyncer().SyncConfigMap(
-		resourcesynccontroller.ResourceLocation{
-			Namespace: c.targetNamespaceName,
-			Name:      "cloud-config",
-		},
-		resourcesynccontroller.ResourceLocation{},
-	); err != nil {
-		return existingConfig, append(errs, err)
-	}
+	// if err := listers.ResourceSyncer().SyncConfigMap(
+	// 	resourcesynccontroller.ResourceLocation{
+	// 		Namespace: c.targetNamespaceName,
+	// 		Name:      "cloud-config",
+	// 	},
+	// 	resourcesynccontroller.ResourceLocation{},
+	// ); err != nil {
+	// 	return existingConfig, append(errs, err)
+	// }
 
 	return observedConfig, errs
 }
